@@ -1,5 +1,5 @@
 -------------------------------------------------------------------------------
--- Cursortrails (Turtle / 1.12, round glow trail, with config GUI)
+-- Cursortrails (Turtle / 1.12, round glow trail with config + SavedVariables)
 -------------------------------------------------------------------------------
 
 local ADDON_NAME = "Cursortrails"
@@ -17,28 +17,71 @@ local function Debug(msg)
 end
 
 -------------------------------------------------------------------------------
--- State
+-- Defaults + SavedVariables hookup
 -------------------------------------------------------------------------------
+local defaultConfig = {
+    enabled     = false,   -- default OFF
+    maxPoints   = 40,
+    dotSize     = 12,
+    trailLength = 0.9,
+    color       = { r = 0.2, g = 0.6, b = 1.0, a = 1.0 },
+    updateRate  = 0.02,
+    minDistance = 0.5,
+}
+
+-- runtime config table; will be pointed at SavedVariables after VARIABLES_LOADED
+local config = defaultConfig
+
+local function Cursortrails_InitConfig()
+    -- SavedVariables table from TOC: ## SavedVariables: CursortrailsConfig
+    if type(CursortrailsConfig) ~= "table" then
+        CursortrailsConfig = {}
+    end
+    if type(CursortrailsConfig.color) ~= "table" then
+        CursortrailsConfig.color = {}
+    end
+
+    -- merge defaults into SavedVariables (only fill nils)
+    for k, v in pairs(defaultConfig) do
+        if k ~= "color" then
+            if CursortrailsConfig[k] == nil then
+                CursortrailsConfig[k] = v
+            end
+        end
+    end
+    for ck, cv in pairs(defaultConfig.color) do
+        if CursortrailsConfig.color[ck] == nil then
+            CursortrailsConfig.color[ck] = cv
+        end
+    end
+
+    config = CursortrailsConfig
+    Debug("Cursortrails_InitConfig: config now bound to CursortrailsConfig")
+end
+
+-- ensure we hook AFTER SavedVariables are applied
+local initFrame = CreateFrame("Frame")
+initFrame:RegisterEvent("VARIABLES_LOADED")
+initFrame:SetScript("OnEvent", function()
+    if event == "VARIABLES_LOADED" then
+        Cursortrails_InitConfig()
+    end
+end)
+
+-------------------------------------------------------------------------------
+-- Trail state
+-------------------------------------------------------------------------------
+local lastUpdate   = 0
+local debugTickAcc = 0
+
 local trailPoints = {}
 local trailDots   = {}
 local dotPool     = {}
 
-local config = {
-    enabled     = false,
-    maxPoints   = 40,       -- more points = smoother line
-    dotSize     = 12,       -- small round glows
-    trailLength = 0.9,      -- seconds until a point fully fades out
-    color       = { r = 0.2, g = 0.6, b = 1.0, a = 1.0 }, -- glowing blue
-    updateRate  = 0.02,
-    minDistance = 0.5,      -- add points frequently for smoothness
-}
-
 -------------------------------------------------------------------------------
--- Config accessors for GUI
+-- Trail clearing
 -------------------------------------------------------------------------------
-
 function Cursortrails_ClearTrail()
-    -- hide and recycle dots
     for i = 1, table.getn(trailDots) do
         local dot = trailDots[i]
         if dot then
@@ -47,79 +90,87 @@ function Cursortrails_ClearTrail()
             dotPool[dot] = true
         end
     end
-
-    -- wipe arrays
-    trailDots = {}
+    trailDots   = {}
     trailPoints = {}
-
     Debug("Trail cleared.")
 end
 
+-------------------------------------------------------------------------------
+-- Config accessors for GUI
+-------------------------------------------------------------------------------
 function Cursortrails_Config_GetEnabled()
-    return config.enabled and 1 or 0
+    return (config.enabled and 1) or 0
 end
 
 function Cursortrails_Config_SetEnabled(val)
+    if config == nil then return end
     config.enabled = (val == 1 or val == true)
 end
 
 function Cursortrails_Config_GetMaxPoints()
-    return config.maxPoints or 40
+    if not config then return defaultConfig.maxPoints end
+    return config.maxPoints or defaultConfig.maxPoints
 end
 
 function Cursortrails_Config_SetMaxPoints(v)
-    v = tonumber(v) or 40
+    if not config then return end
+    v = tonumber(v) or defaultConfig.maxPoints
     if v < 5 then v = 5 end
     if v > 80 then v = 80 end
     config.maxPoints = v
 end
 
 function Cursortrails_Config_GetDotSize()
-    return config.dotSize or 12
+    if not config then return defaultConfig.dotSize end
+    return config.dotSize or defaultConfig.dotSize
 end
 
 function Cursortrails_Config_SetDotSize(v)
-    v = tonumber(v) or 12
+    if not config then return end
+    v = tonumber(v) or defaultConfig.dotSize
     if v < 4 then v = 4 end
     if v > 32 then v = 32 end
     config.dotSize = v
 end
 
 function Cursortrails_Config_GetTrailLength()
-    return config.trailLength or 0.9
+    if not config then return defaultConfig.trailLength end
+    return config.trailLength or defaultConfig.trailLength
 end
 
 function Cursortrails_Config_SetTrailLength(v)
-    v = tonumber(v) or 0.9
+    if not config then return end
+    v = tonumber(v) or defaultConfig.trailLength
     if v < 0.3 then v = 0.3 end
     if v > 3.0 then v = 3.0 end
     config.trailLength = v
 end
 
 function Cursortrails_Config_GetUpdateRate()
-    return config.updateRate or 0.02
+    if not config then return defaultConfig.updateRate end
+    return config.updateRate or defaultConfig.updateRate
 end
 
 function Cursortrails_Config_SetUpdateRate(v)
-    v = tonumber(v) or 0.02
+    if not config then return end
+    v = tonumber(v) or defaultConfig.updateRate
     if v < 0.01 then v = 0.01 end
     if v > 0.05 then v = 0.05 end
     config.updateRate = v
 end
 
 function Cursortrails_Config_GetMinDistance()
-    return config.minDistance or 0.5
+    if not config then return defaultConfig.minDistance end
+    return config.minDistance or defaultConfig.minDistance
 end
 
 function Cursortrails_Config_SetMinDistance(v)
-    v = tonumber(v) or 0.5
+    if not config then return end
+    v = tonumber(v) or defaultConfig.minDistance
     if v < 0.1 then v = 0.1 end
     if v > 10 then v = 10 end
     config.minDistance = v
 end
-
-local lastUpdate   = 0
-local debugTickAcc = 0
 
 -------------------------------------------------------------------------------
 -- Helpers
@@ -137,20 +188,23 @@ local Cursortrails_ColorPrev = nil
 
 local function Cursortrails_Config_UpdateColorSwatch()
     local tex = getglobal("CursortrailsColorSwatchTexture")
-    if tex then
+    if tex and config and config.color then
         tex:SetVertexColor(config.color.r, config.color.g, config.color.b, config.color.a or 1.0)
     end
 end
 
 function Cursortrails_Config_SetColor(r, g, b, a)
-    config.color.r = r or config.color.r
-    config.color.g = g or config.color.g
-    config.color.b = b or config.color.b
-    config.color.a = a or config.color.a
+    if not config then return end
+    if not config.color then
+        config.color = {}
+    end
+    config.color.r = r or config.color.r or defaultConfig.color.r
+    config.color.g = g or config.color.g or defaultConfig.color.g
+    config.color.b = b or config.color.b or defaultConfig.color.b
+    config.color.a = a or config.color.a or defaultConfig.color.a
     Cursortrails_Config_UpdateColorSwatch()
 end
 
--- Called when color picker changes (and on opacity change)
 local function Cursortrails_ColorPickerCallback()
     local r, g, b = ColorPickerFrame:GetColorRGB()
     local a = 1.0
@@ -160,7 +214,6 @@ local function Cursortrails_ColorPickerCallback()
     Cursortrails_Config_SetColor(r, g, b, a)
 end
 
--- Called when user hits cancel in color picker
 local function Cursortrails_ColorPickerCancel(prev)
     if not prev then return end
     Cursortrails_Config_SetColor(prev.r, prev.g, prev.b, prev.a)
@@ -168,6 +221,15 @@ end
 
 function Cursortrails_OpenColorPicker()
     if not ColorPickerFrame then return end
+    if not config then return end
+
+    if not config.color then
+        config.color = {}
+        config.color.r = defaultConfig.color.r
+        config.color.g = defaultConfig.color.g
+        config.color.b = defaultConfig.color.b
+        config.color.a = defaultConfig.color.a
+    end
 
     Cursortrails_ColorPrev = {
         r = config.color.r,
@@ -176,21 +238,21 @@ function Cursortrails_OpenColorPicker()
         a = config.color.a or 1.0
     }
 
-    ColorPickerFrame.func = Cursortrails_ColorPickerCallback
+    ColorPickerFrame.func        = Cursortrails_ColorPickerCallback
     ColorPickerFrame.opacityFunc = Cursortrails_ColorPickerCallback
-    ColorPickerFrame.cancelFunc = function()
+    ColorPickerFrame.cancelFunc  = function()
         Cursortrails_ColorPickerCancel(Cursortrails_ColorPrev)
     end
 
     ColorPickerFrame.hasOpacity = true
-    ColorPickerFrame.opacity = 1 - (config.color.a or 1.0)
+    ColorPickerFrame.opacity    = 1 - (config.color.a or 1.0)
     ColorPickerFrame:SetColorRGB(config.color.r, config.color.g, config.color.b)
 
     ShowUIPanel(ColorPickerFrame)
 end
 
--- Refresh all controls when the frame opens
 function Cursortrails_Config_Refresh()
+    -- Called from XML OnShow
     if not CursortrailsConfigFrame then return end
 
     if CursortrailsEnableCheck then
@@ -222,7 +284,10 @@ end
 local function CreateTrailDot()
     local dot = CT:CreateTexture(nil, "OVERLAY")
 
-    -- Fallback if texture missing: simple background
+    -- if you have Interface\AddOns\Cursortrails\roundglow.tga, use this:
+    dot:SetTexture("Interface\\AddOns\\Cursortrails\\roundglow.tga")
+
+    -- Fallback if texture missing
     if not dot:GetTexture() then
         dot:SetTexture("Interface\\Tooltips\\UI-Tooltip-Background")
         Debug("roundglow.tga missing, using fallback square texture.")
@@ -250,14 +315,24 @@ local function ReleaseDot(dot)
     dotPool[dot] = true
 end
 
--- Dots positioned exactly at the cursor, like MouseHighlightCircle
 local function CreateDotAtPoint(p, alpha)
+    local dotSize = defaultConfig.dotSize
+    if config and config.dotSize then
+        dotSize = config.dotSize
+    end
+
     local dot = GetDot()
-    dot:SetWidth(config.dotSize)
-    dot:SetHeight(config.dotSize)
+    dot:SetWidth(dotSize)
+    dot:SetHeight(dotSize)
 
     dot:SetPoint("CENTER", UIParent, "BOTTOMLEFT", p.x, p.y)
-    dot:SetVertexColor(config.color.r, config.color.g, config.color.b, alpha)
+
+    local col = defaultConfig.color
+    if config and config.color then
+        col = config.color
+    end
+
+    dot:SetVertexColor(col.r, col.g, col.b, alpha)
     dot:Show()
     return dot
 end
@@ -266,15 +341,19 @@ end
 -- Main update (vanilla-style: uses arg1)
 -------------------------------------------------------------------------------
 local function OnUpdate()
-    local elapsed = arg1  -- 1.12 style
+    local elapsed = arg1  -- 1.12 uses global arg1
     if not elapsed then
         return
     end
 
+    -- If SavedVariables not bound yet, skip
+    if not config then return end
+
     if not config.enabled then return end
 
     lastUpdate = lastUpdate + elapsed
-    if lastUpdate < config.updateRate then return end
+    local updRate = config.updateRate or defaultConfig.updateRate
+    if lastUpdate < updRate then return end
     lastUpdate = 0
 
     local x, y = GetCursorPosition()
@@ -283,14 +362,14 @@ local function OnUpdate()
 
     local now = GetTime()
 
-    ---------------------------------------------------------------------------
-    -- 1) Decide whether to add a new point (based on movement)
-    ---------------------------------------------------------------------------
-    local shouldAdd = true
-    local pointCount = table.getn(trailPoints)
+    -- 1) Maybe add new point
+    local shouldAdd   = true
+    local pointCount  = table.getn(trailPoints)
+    local minDist     = config.minDistance or defaultConfig.minDistance
+
     if pointCount > 0 then
         local last = trailPoints[1]
-        if Distance(last.x, last.y, x, y) < config.minDistance then
+        if Distance(last.x, last.y, x, y) < minDist then
             shouldAdd = false
         end
     end
@@ -299,25 +378,22 @@ local function OnUpdate()
         table.insert(trailPoints, 1, { x = x, y = y, time = now })
     end
 
-    ---------------------------------------------------------------------------
-    -- 2) Remove old points (age > trailLength)
-    ---------------------------------------------------------------------------
+    -- 2) Remove old points
+    local tLen = config.trailLength or defaultConfig.trailLength
     pointCount = table.getn(trailPoints)
     for i = pointCount, 1, -1 do
-        if now - trailPoints[i].time > config.trailLength then
+        if now - trailPoints[i].time > tLen then
             table.remove(trailPoints, i)
         end
     end
 
-    -- 3) Limit total number of points
-    while table.getn(trailPoints) > config.maxPoints do
+    -- 3) Limit number of points
+    local maxP = config.maxPoints or defaultConfig.maxPoints
+    while table.getn(trailPoints) > maxP do
         table.remove(trailPoints)
     end
 
-    ---------------------------------------------------------------------------
-    -- 4) Clear old dots and rebuild from current points
-    --    This happens even when the mouse is still, so they fade out in place.
-    ---------------------------------------------------------------------------
+    -- 4) Rebuild dots
     local dotCount = table.getn(trailDots)
     for i = 1, dotCount do
         ReleaseDot(trailDots[i])
@@ -325,28 +401,27 @@ local function OnUpdate()
     trailDots = {}
 
     pointCount = table.getn(trailPoints)
+    local col = (config and config.color) or defaultConfig.color
     for i = 1, pointCount do
-        local p = trailPoints[i]
-        local age   = (now - p.time) / config.trailLength
-        local alpha = (1 - age) * config.color.a
+        local p     = trailPoints[i]
+        local age   = (now - p.time) / tLen
+        local alpha = (1 - age) * (col.a or defaultConfig.color.a)
         if alpha > 0.05 then
             local dot = CreateDotAtPoint(p, alpha)
             table.insert(trailDots, dot)
         end
     end
 
-    ---------------------------------------------------------------------------
-    -- 5) Debug info (optional)
-    ---------------------------------------------------------------------------
+    -- 5) Debug info
     debugTickAcc = debugTickAcc + elapsed
     if debugTickAcc > 0.5 then
-        Debug(string.format("OnUpdate: cursor=(%.1f, %.1f), points=%d", x, y, pointCount))
+        Debug(string.format("OnUpdate: points=%d", pointCount))
         debugTickAcc = 0
     end
 end
 
 CT:SetScript("OnUpdate", OnUpdate)
-CT:Show()   -- ensure OnUpdate runs
+CT:Show()
 
 -------------------------------------------------------------------------------
 -- Test helper: spawn a big dot in center with /ctr test
@@ -356,7 +431,7 @@ local function SpawnTestDot()
     dot:SetWidth(64)
     dot:SetHeight(64)
     dot:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-    dot:SetVertexColor(1, 0, 0, 0.9) -- bright red
+    dot:SetVertexColor(1, 0, 0, 0.9)
     dot:Show()
     Debug("Spawned TEST dot in screen center.")
 end
@@ -367,18 +442,16 @@ end
 SLASH_CURSORTRAILS1 = "/cursortrails"
 SLASH_CURSORTRAILS2 = "/ctr"
 SLASH_CURSORTRAILS3 = "/ctrdebug"
-SLASH_CURSORTRAILS4 = "/ctf"   -- extra alias if you like using /ctf
+SLASH_CURSORTRAILS4 = "/ctf"
 
 SlashCmdList.CURSORTRAILS = function(msg)
     msg = msg or ""
-    -- trim leading spaces
     while string.sub(msg, 1, 1) == " " do
         msg = string.sub(msg, 2)
     end
 
     local lower = string.lower(msg)
 
-    -- open/close config GUI
     if lower == "config" or lower == "options" or lower == "ui" then
         if CursortrailsConfigFrame then
             if CursortrailsConfigFrame:IsShown() then
@@ -403,12 +476,15 @@ SlashCmdList.CURSORTRAILS = function(msg)
     end
 
     if lower == "on" then
-        config.enabled = true
-        Debug("Enabled")
+        if config then
+            config.enabled = true
+            Debug("Enabled")
+        end
         return
     elseif lower == "off" then
-        elseif lower == "off" then
-        config.enabled = false
+        if config then
+            config.enabled = false
+        end
         Cursortrails_ClearTrail()
         Debug("Disabled")
         return
@@ -420,7 +496,7 @@ SlashCmdList.CURSORTRAILS = function(msg)
     if DEFAULT_CHAT_FRAME then
         DEFAULT_CHAT_FRAME:AddMessage("|cff88ff88Cursortrails commands:|r")
         DEFAULT_CHAT_FRAME:AddMessage("/ctr on       - enable")
-        DEFAULT_CHAT_FRAME:AddMessage("/ctr off      - disable")
+        DEFAULT_CHAT_FRAME:AddMessage("/ctr off      - disable & clear")
         DEFAULT_CHAT_FRAME:AddMessage("/ctr test     - spawn test dot in center")
         DEFAULT_CHAT_FRAME:AddMessage("/ctr config   - open/close options window")
         DEFAULT_CHAT_FRAME:AddMessage("/ctrdebug     - toggle debug messages")
@@ -428,10 +504,8 @@ SlashCmdList.CURSORTRAILS = function(msg)
 end
 
 -------------------------------------------------------------------------------
--- Simple load message
+-- Load message
 -------------------------------------------------------------------------------
 if DEFAULT_CHAT_FRAME then
     DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffCursortrails|r loaded. Use |cff88ff88/ctr config|r for options.")
-    Cursortrails_ClearTrail()
-    Debug("Lua version: " .. tostring(_VERSION or "unknown"))
 end
