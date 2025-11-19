@@ -68,10 +68,10 @@
                 <Scripts>
                     <OnClick>
                         if this:GetChecked() then
-                            Cursortrails_Config_SetEnabled(1)
+                            Cursortrails_Config_SetEnabled(1);
                         else
-                            Cursortrails_Config_SetEnabled(0)
-                            Cursortrails_ClearTrail()
+                            Cursortrails_Config_SetEnabled(0);
+                            Cursortrails_ClearTrail();
                         end
                     </OnClick>
                     <OnShow>
