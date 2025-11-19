@@ -1,6 +1,9 @@
 ## Interface: 11200
 ## Title: Cursortrails
+## Author: Slimewizzard
+## Version: 0.1
 ## Notes: Simple cursor trail for 1.12
 ## SavedVariables: CursortrailsConfig
+
 Cursortrails.lua
 Cursortrails.xml
